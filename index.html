@@ -9,9 +9,9 @@
 <meta name="apple-mobile-web-app-title" content="Sam's POS"/>
 <link rel="manifest" href="manifest.json"/>
 <title>Sam's Kitchen POS</title>
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 body{margin:0;font-family:'Trebuchet MS',sans-serif;background:#0f0f0f;overscroll-behavior:none;}
@@ -81,6 +81,16 @@ function App(){
   const[histDate,setHistDate]=useState(fmtDate(new Date()));
   const[cat,setCat]=useState("All");
   const[tick,setTick]=useState(0);
+
+  // Sync state from localStorage whenever staff logs in
+  useEffect(()=>{
+    if(staff){
+      setOrders(load("sk_orders",[]));
+      setMenu(load("sk_menu",INITIAL_MENU));
+      setInv(load("sk_inv",INITIAL_MENU.map(i=>({...i,sold:0}))));
+      setStaffList(load("sk_staff",DEFAULT_STAFF));
+    }
+  },[staff]);
 
   useEffect(()=>{const t=setInterval(()=>setTick(x=>x+1),1000);return()=>clearInterval(t);},[]);
   useEffect(()=>{save("sk_staff",staffList);},[staffList]);

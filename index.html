@@ -162,7 +162,37 @@ function App(){
   const filtHist=orders.filter(o=>o.date===histDate);
   const histRev=filtHist.filter(o=>o.status==="done").reduce((s,o)=>s+o.total,0);
   const itemsByDate=date=>{const sales={};orders.filter(o=>o.date===date&&o.status==="done").forEach(o=>o.items.forEach(it=>{sales[it.name]=(sales[it.name]||0)+it.qty;}));return sales;};
-  const sendReceipt=async o=>{if(!o.customer.email){notify("No email!","#ef4444");return;}setEmailSt("sending");await new Promise(r=>setTimeout(r,1500));setEmailSt("sent");notify(`📧 Sent to ${o.customer.email}!`,"#22c55e");setTimeout(()=>setEmailSt(""),3000);};
+  const sendReceipt=async o=>{
+    if(!o.customer.email){notify("No email on file!","#ef4444");return;}
+    setEmailSt("sending");
+    try{
+      const itemsText=o.items.map(i=>`${i.emoji} ${i.name} x${i.qty}${i.spice?' ['+i.spice+']':''}${i.toppings?.length?' ['+i.toppings.join(', ')+']':''} — ${(i.price*i.qty).toFixed(2)}`).join('\n');
+      const res=await fetch("https://api.emailjs.com/api/v1.0/email/send",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          service_id:"service_xejyzkt",
+          template_id:"template_34fzew9",
+          user_id:"89XXMfTHZqHtrCeOL",
+          template_params:{
+            to_email:o.customer.email,
+            customer_name:o.customer.name||"Valued Customer",
+            order_id:o.id,
+            order_date:fmtDate(o.time)+" "+fmtTime(o.time),
+            staff_name:o.staff,
+            order_items:itemsText,
+            subtotal:"$"+o.subtotal.toFixed(2),
+            tax_line:o.tax>0?"HST 13%: $"+o.tax.toFixed(2):"",
+            total:"$"+o.total.toFixed(2),
+            pay_method:o.payMethod.toUpperCase(),
+          }
+        })
+      });
+      if(res.ok){setEmailSt("sent");notify(`📧 Receipt sent to ${o.customer.email}!`,"#22c55e");}
+      else{setEmailSt("error");notify("❌ Failed to send email","#ef4444");}
+    }catch(e){setEmailSt("error");notify("❌ Network error","#ef4444");}
+    setTimeout(()=>setEmailSt(""),3000);
+  };
 
   const inp={background:"#1e1208",border:"1px solid #3d2510",borderRadius:8,padding:"7px 11px",color:"#f5f0e8",fontSize:12,width:"100%",boxSizing:"border-box"};
   const b=(active,color="#f97316")=>({padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:12,background:active?color:"#2a1a0a",color:active?"#fff":"#c49a6c",transition:"all 0.2s"});

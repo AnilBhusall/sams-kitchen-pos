@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="theme-color" content="#f97316"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Sam's POS"/>
+<link rel="manifest" href="manifest.json"/>
+<title>Sam's Kitchen POS</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+body{margin:0;font-family:'Trebuchet MS',sans-serif;background:#0f0f0f;overscroll-behavior:none;}
+::-webkit-scrollbar{width:4px;}
+::-webkit-scrollbar-track{background:#0f0f0f;}
+::-webkit-scrollbar-thumb{background:#2d1c0a;border-radius:2px;}
+button:hover{filter:brightness(1.12);}
+input:focus,select:focus,textarea:focus{outline:1px solid #f97316;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useEffect}=React;
+const TAX_RATE=0.13;
+const DEFAULT_STAFF=[
+  {id:1,name:"Anil",pin:"1234",role:"Manager",emoji:"👨‍💼"},
+  {id:2,name:"Sandipa",pin:"2222",role:"Cashier",emoji:"👩‍💼"},
+  {id:3,name:"Sam",pin:"3333",role:"Owner",emoji:"👑"},
+];
+const TOPPINGS=["Ground Beef","Jalapeño","Pickles","Hot Peppers","Onions","Cucumber","Salsa","Shredded Cheese","Cheese Sauce","Cilantro"];
+const SPICE_LEVELS=["Non Spicy","Reg Spicy","Extra Spicy"];
+const INITIAL_MENU=[
+  {id:1,name:"Chicken Momo",category:"Momo",price:12.00,emoji:"🥟",inventory:70,modifiers:[]},
+  {id:2,name:"Veggie Momo",category:"Momo",price:10.00,emoji:"🥟",inventory:30,modifiers:[]},
+  {id:3,name:"Jhol Momo",category:"Momo",price:14.00,emoji:"🥟",inventory:40,modifiers:[]},
+  {id:4,name:"Jerk Chicken Meal",category:"Mains",price:15.00,emoji:"🍗",inventory:25,modifiers:[]},
+  {id:5,name:"Snakin' With Sam",category:"Snacks",price:14.99,emoji:"🌮",inventory:25,modifiers:["toppings"]},
+  {id:6,name:"Dorrito Daddy",category:"Snacks",price:19.99,emoji:"🌮",inventory:15,modifiers:["toppings"]},
+  {id:7,name:"Jamaican Patty - Beef",category:"Patties",price:3.00,emoji:"🥙",inventory:30,modifiers:["spice"]},
+  {id:8,name:"Jamaican Patty - Chicken",category:"Patties",price:3.00,emoji:"🥙",inventory:20,modifiers:[]},
+  {id:9,name:"Jamaican Patty - Veggie",category:"Patties",price:3.00,emoji:"🥙",inventory:20,modifiers:[]},
+];
+const fmt=n=>`$${Number(n).toFixed(2)}`;
+const fmtTime=d=>new Date(d).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
+const fmtDate=d=>new Date(d).toLocaleDateString("en-CA");
+const elapsed=d=>{const s=Math.floor((Date.now()-new Date(d))/1000);return s<60?`${s}s`:`${Math.floor(s/60)}m${s%60}s`;};
+const save=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}};
+const load=(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch(e){return d;}};
+let oid=load("sk_oid",1);
+
+function App(){
+  const[staffList,setStaffList]=useState(()=>load("sk_staff",DEFAULT_STAFF));
+  const[staff,setStaff]=useState(null);
+  const[pin,setPin]=useState("");
+  const[pinErr,setPinErr]=useState("");
+  const[staffModal,setStaffModal]=useState(false);
+  const[newStaff,setNewStaff]=useState({name:"",pin:"",role:"Cashier",emoji:"👤"});
+  const[view,setView]=useState("cashier");
+  const[menu,setMenu]=useState(()=>load("sk_menu",INITIAL_MENU));
+  const[inv,setInv]=useState(()=>load("sk_inv",INITIAL_MENU.map(i=>({...i,sold:0}))));
+  const[cart,setCart]=useState([]);
+  const[orders,setOrders]=useState(()=>load("sk_orders",[]));
+  const[payMethod,setPayMethod]=useState("cash");
+  const[cust,setCust]=useState({name:"",phone:"",address:"",email:""});
+  const[orderType,setOrderType]=useState("dine-in");
+  const[note,setNote]=useState("");
+  const[notif,setNotif]=useState(null);
+  const[custOpen,setCustOpen]=useState(false);
+  const[modModal,setModModal]=useState(null);
+  const[editItem,setEditItem]=useState(null);
+  const[addModal,setAddModal]=useState(false);
+  const[newItem,setNewItem]=useState({name:"",category:"Mains",price:"",emoji:"🍽️",inventory:20});
+  const[receipt,setReceipt]=useState(null);
+  const[emailSt,setEmailSt]=useState("");
+  const[eod,setEod]=useState(false);
+  const[histDate,setHistDate]=useState(fmtDate(new Date()));
+  const[cat,setCat]=useState("All");
+  const[tick,setTick]=useState(0);
+
+  // Sync state from localStorage whenever staff logs in
+  useEffect(()=>{
+    if(staff){
+      setOrders(load("sk_orders",[]));
+      setMenu(load("sk_menu",INITIAL_MENU));
+      setInv(load("sk_inv",INITIAL_MENU.map(i=>({...i,sold:0}))));
+      setStaffList(load("sk_staff",DEFAULT_STAFF));
+    }
+  },[staff]);
+
+  useEffect(()=>{const t=setInterval(()=>setTick(x=>x+1),1000);return()=>clearInterval(t);},[]);
+  useEffect(()=>{save("sk_staff",staffList);},[staffList]);
+  useEffect(()=>{save("sk_menu",menu);},[menu]);
+  useEffect(()=>{save("sk_inv",inv);},[inv]);
+  useEffect(()=>{save("sk_orders",orders);},[orders]);
+
+  const notify=(msg,color="#f97316")=>{setNotif({msg,color});setTimeout(()=>setNotif(null),3000);};
+
+  const doPin=digit=>{
+    const next=pin+digit;setPin(next);
+    if(next.length===4){
+      const s=staffList.find(x=>x.pin===next);
+      if(s){setStaff(s);setPin("");setPinErr("");}
+      else{setPinErr("Wrong PIN");setTimeout(()=>{setPin("");setPinErr("");},900);}
+    }
+  };
+
+  const openMod=item=>{
+    if(item.modifiers?.includes("spice")||item.modifiers?.includes("toppings"))
+      setModModal({item,spice:item.modifiers.includes("spice")?"Non Spicy":null,toppings:[]});
+    else addDirect(item,null,[]);
+  };
+  const addDirect=(item,spice,toppings)=>{
+    const it=inv.find(i=>i.id===item.id);
+    if(!it||it.inventory-it.sold<=0){notify("⚠️ Out of stock!","#ef4444");return;}
+    const modLabel=[spice,...(toppings||[])].filter(Boolean).join("|");
+    const key=item.id+"|"+modLabel;
+    setCart(prev=>{const ex=prev.find(c=>c._k===key);return ex?prev.map(c=>c._k===key?{...c,qty:c.qty+1}:c):[...prev,{...item,qty:1,spice,toppings:toppings||[],_k:key}];});
+  };
+  const confirmMod=()=>{if(!modModal)return;addDirect(modModal.item,modModal.spice,modModal.toppings);setModModal(null);};
+  const remCart=k=>setCart(prev=>prev.filter(c=>c._k!==k));
+  const updQty=(k,d)=>setCart(prev=>prev.map(c=>c._k===k?{...c,qty:Math.max(1,c.qty+d)}:c));
+
+  const subtotal=cart.reduce((s,c)=>s+(menu.find(m=>m.id===c.id)?.price||c.price)*c.qty,0);
+  const taxable=payMethod!=="cash";
+  const tax=taxable?subtotal*TAX_RATE:0;
+  const total=subtotal+tax;
+
+  const placeOrder=()=>{
+    if(!cart.length){notify("Add items first!");return;}
+    const order={id:oid++,items:cart.map(c=>({...c,price:menu.find(m=>m.id===c.id)?.price||c.price})),subtotal,tax,total,customer:{...cust},payMethod,orderType,note,status:"pending",time:new Date().toISOString(),date:fmtDate(new Date()),staff:staff?.name||"?"};
+    save("sk_oid",oid);
+    setOrders(prev=>[order,...prev]);
+    setInv(prev=>prev.map(it=>{const ci=cart.find(c=>c.id===it.id);return ci?{...it,sold:it.sold+ci.qty}:it;}));
+    setCart([]);setCust({name:"",phone:"",address:"",email:""});setNote("");setCustOpen(false);
+    notify(`✅ Order #${order.id} sent!`,"#22c55e");
+  };
+  const updStatus=(id,status)=>{setOrders(prev=>prev.map(o=>o.id===id?{...o,status}:o));if(status==="done")notify(`✅ Order #${id} done!`,"#22c55e");};
+  const saveEdit=()=>{if(!editItem)return;setMenu(prev=>prev.map(m=>m.id===editItem.id?{...m,name:editItem.name,price:parseFloat(editItem.price)}:m));setEditItem(null);notify("✅ Updated!","#22c55e");};
+  const saveNew=()=>{
+    if(!newItem.name||!newItem.price){notify("Fill name & price!");return;}
+    const id=Math.max(...menu.map(m=>m.id),0)+1;
+    const item={id,name:newItem.name,category:newItem.category,price:parseFloat(newItem.price),emoji:newItem.emoji,inventory:parseInt(newItem.inventory)||20,modifiers:[]};
+    setMenu(prev=>[...prev,item]);setInv(prev=>[...prev,{...item,sold:0}]);
+    setAddModal(false);setNewItem({name:"",category:"Mains",price:"",emoji:"🍽️",inventory:20});notify("✅ Added!","#22c55e");
+  };
+  const remItem=id=>{setMenu(prev=>prev.filter(m=>m.id!==id));setInv(prev=>prev.filter(i=>i.id!==id));notify("Removed","#6366f1");};
+
+  const todayOrders=orders.filter(o=>o.date===fmtDate(new Date()));
+  const done=orders.filter(o=>o.status==="done");
+  const doneToday=todayOrders.filter(o=>o.status==="done");
+  const todayRev=doneToday.reduce((s,o)=>s+o.total,0);
+  const todayTax=doneToday.reduce((s,o)=>s+o.tax,0);
+  const todayCash=doneToday.filter(o=>o.payMethod==="cash").reduce((s,o)=>s+o.total,0);
+  const todayDebit=doneToday.filter(o=>o.payMethod!=="cash").reduce((s,o)=>s+o.total,0);
+  const pending=orders.filter(o=>o.status!=="done");
+  const histDates=[...new Set(orders.map(o=>o.date))].sort((a,b)=>new Date(b)-new Date(a));
+  const filtHist=orders.filter(o=>o.date===histDate);
+  const histRev=filtHist.filter(o=>o.status==="done").reduce((s,o)=>s+o.total,0);
+  const itemsByDate=date=>{const sales={};orders.filter(o=>o.date===date&&o.status==="done").forEach(o=>o.items.forEach(it=>{sales[it.name]=(sales[it.name]||0)+it.qty;}));return sales;};
+  const sendReceipt=async o=>{
+    if(!o.customer.email){notify("No email on file!","#ef4444");return;}
+    setEmailSt("sending");
+    try{
+      const itemsText=o.items.map(i=>`${i.emoji} ${i.name} x${i.qty}${i.spice?' ['+i.spice+']':''}${i.toppings?.length?' ['+i.toppings.join(', ')+']':''} — ${(i.price*i.qty).toFixed(2)}`).join('\n');
+      const res=await fetch("https://api.emailjs.com/api/v1.0/email/send",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          service_id:"service_xejyzkt",
+          template_id:"template_34fzew9",
+          user_id:"89XXMfTHZqHtrCeOL",
+          template_params:{
+            to_email:o.customer.email,
+            customer_name:o.customer.name||"Valued Customer",
+            order_id:o.id,
+            order_date:fmtDate(o.time)+" "+fmtTime(o.time),
+            staff_name:o.staff,
+            order_items:itemsText,
+            subtotal:"$"+o.subtotal.toFixed(2),
+            tax_line:o.tax>0?"HST 13%: $"+o.tax.toFixed(2):"",
+            total:"$"+o.total.toFixed(2),
+            pay_method:o.payMethod.toUpperCase(),
+          }
+        })
+      });
+      if(res.ok){setEmailSt("sent");notify(`📧 Receipt sent to ${o.customer.email}!`,"#22c55e");}
+      else{setEmailSt("error");notify("❌ Failed to send email","#ef4444");}
+    }catch(e){setEmailSt("error");notify("❌ Network error","#ef4444");}
+    setTimeout(()=>setEmailSt(""),3000);
+  };
+
+  const inp={background:"#1e1208",border:"1px solid #3d2510",borderRadius:8,padding:"7px 11px",color:"#f5f0e8",fontSize:12,width:"100%",boxSizing:"border-box"};
+  const b=(active,color="#f97316")=>({padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:12,background:active?color:"#2a1a0a",color:active?"#fff":"#c49a6c",transition:"all 0.2s"});
+
+  if(!staff) return(
+    <div style={{fontFamily:"'Trebuchet MS',sans-serif",background:"#0f0f0f",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:"#f5f0e8"}}>
+      {staffModal&&<div style={{position:"fixed",inset:0,background:"#000b",zIndex:9000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div style={{background:"#1a0e04",border:"2px solid #f97316",borderRadius:16,padding:22,width:360,maxHeight:"85vh",overflowY:"auto"}}>
+          <div style={{fontWeight:900,fontSize:17,color:"#f97316",marginBottom:14}}>👥 Manage Staff</div>
+          <div style={{marginBottom:16}}>
+            {staffList.map(s=>(
+              <div key={s.id} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 0",borderBottom:"1px solid #1e1208"}}>
+                <span style={{fontSize:20}}>{s.emoji}</span>
+                <div style={{flex:1}}><div style={{fontWeight:700,fontSize:13}}>{s.name}</div><div style={{fontSize:11,color:"#888"}}>{s.role} • PIN: {s.pin}</div></div>
+                {staffList.length>1&&<button onClick={()=>setStaffList(prev=>prev.filter(x=>x.id!==s.id))} style={{padding:"4px 9px",borderRadius:6,border:"none",background:"#ef444420",color:"#ef4444",cursor:"pointer",fontWeight:700,fontSize:10}}>Remove</button>}
+              </div>
+            ))}
+          </div>
+          <div style={{fontWeight:700,fontSize:13,color:"#22c55e",marginBottom:10}}>➕ Add New Staff</div>
+          {[["Name","name","text"],["4-digit PIN","pin","number"],["Emoji","emoji","text"]].map(([l,k,t])=>(
+            <div key={k} style={{marginBottom:9}}>
+              <div style={{fontSize:11,color:"#888",marginBottom:3}}>{l}</div>
+              <input type={t} maxLength={k==="pin"?4:undefined} placeholder={k==="pin"?"e.g. 5678":k==="emoji"?"e.g. 👨‍🍳":""} value={newStaff[k]} onChange={e=>setNewStaff(p=>({...p,[k]:e.target.value}))} style={{background:"#1e1208",border:"1px solid #3d2510",borderRadius:7,padding:"7px 10px",color:"#f5f0e8",fontSize:12,width:"100%",boxSizing:"border-box"}}/>
+            </div>
+          ))}
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:11,color:"#888",marginBottom:3}}>Role</div>
+            <select value={newStaff.role} onChange={e=>setNewStaff(p=>({...p,role:e.target.value}))} style={{background:"#1e1208",border:"1px solid #3d2510",borderRadius:7,padding:"7px 10px",color:"#f5f0e8",fontSize:12,width:"100%",boxSizing:"border-box"}}>
+              {["Owner","Manager","Cashier","Cook"].map(r=><option key={r}>{r}</option>)}
+            </select>
+          </div>
+          <div style={{display:"flex",gap:7}}>
+            <button onClick={()=>{
+              if(!newStaff.name||newStaff.pin.length!==4){notify("Name & 4-digit PIN required!");return;}
+              if(staffList.find(s=>s.pin===newStaff.pin)){notify("PIN already in use!","#ef4444");return;}
+              const id=Math.max(...staffList.map(s=>s.id),0)+1;
+              setStaffList(prev=>[...prev,{id,name:newStaff.name,pin:newStaff.pin,role:newStaff.role,emoji:newStaff.emoji||"👤"}]);
+              setNewStaff({name:"",pin:"",role:"Cashier",emoji:"👤"});
+              notify("✅ Staff added!","#22c55e");
+            }} style={{flex:1,padding:"9px 0",borderRadius:8,border:"none",cursor:"pointer",background:"#22c55e",color:"#fff",fontWeight:700}}>Add Staff</button>
+            <button onClick={()=>setStaffModal(false)} style={{flex:1,padding:"9px 0",borderRadius:8,border:"none",cursor:"pointer",background:"#2d1c0a",color:"#c49a6c",fontWeight:700}}>Close</button>
+          </div>
+        </div>
+      </div>}
+      <div style={{textAlign:"center",width:300}}>
+        <div style={{fontSize:52,marginBottom:6}}>🍗</div>
+        <div style={{fontWeight:900,fontSize:20,color:"#f97316",letterSpacing:2,marginBottom:2}}>SAM'S KITCHEN POS</div>
+        <div style={{fontSize:11,color:"#555",marginBottom:20}}>Enter your staff PIN</div>
+        <div style={{display:"flex",justifyContent:"center",gap:10,marginBottom:20,flexWrap:"wrap"}}>
+          {staffList.map(s=><div key={s.id} style={{textAlign:"center",opacity:0.5}}><div style={{fontSize:22}}>{s.emoji}</div><div style={{fontSize:9,color:"#666"}}>{s.name}</div></div>)}
+        </div>
+        <div style={{display:"flex",justifyContent:"center",gap:14,marginBottom:20}}>
+          {[0,1,2,3].map(i=><div key={i} style={{width:14,height:14,borderRadius:"50%",border:"2px solid #f97316",background:pin.length>i?"#f97316":"transparent",transition:"background 0.15s"}}/>)}
+        </div>
+        {pinErr&&<div style={{color:"#ef4444",fontSize:13,marginBottom:10,fontWeight:700}}>{pinErr}</div>}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:8}}>
+          {[1,2,3,4,5,6,7,8,9].map(d=><button key={d} onClick={()=>doPin(String(d))} style={{padding:"16px 0",borderRadius:10,border:"none",cursor:"pointer",background:"#1e1208",color:"#f5f0e8",fontWeight:900,fontSize:18}}>{d}</button>)}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          <button onClick={()=>setPin("")} style={{padding:"14px 0",borderRadius:10,border:"none",cursor:"pointer",background:"#2d1c0a",color:"#c49a6c",fontWeight:700,fontSize:12}}>CLR</button>
+          <button onClick={()=>doPin("0")} style={{padding:"14px 0",borderRadius:10,border:"none",cursor:"pointer",background:"#1e1208",color:"#f5f0e8",fontWeight:900,fontSize:18}}>0</button>
+          <button onClick={()=>setPin(p=>p.slice(0,-1))} style={{padding:"14px 0",borderRadius:10,border:"none",cursor:"pointer",background:"#2d1c0a",color:"#c49a6c",fontWeight:700,fontSize:16}}>⌫</button>
+        </div>
+        <button onClick={()=>setStaffModal(true)} style={{marginTop:16,padding:"8px 20px",borderRadius:8,border:"none",cursor:"pointer",background:"#2d1c0a",color:"#f97316",fontWeight:700,fontSize:11}}>👥 Manage Staff</button>
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={{fontFamily:"'Trebuchet MS',sans-serif",background:"#0f0f0f",minHeight:"100vh",color:"#f5f0e8"}}>
+      {modModal&&<div style={{position:"fixed",inset:0,background:"#000b",zIndex:9000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div style={{background:"#1a0e04",border:"2px solid #f97316",borderRadius:16,padding:22,width:350,maxHeight:"80vh",overflowY:"auto"}}>
+          <div style={{fontWeight:900,fontSize:17,color:"#f97316",marginBottom:3}}>{modModal.item.emoji} {modModal.item.name}</div>
+          <div style={{fontSize:11,color:"#888",marginBottom:14}}>Customise your order</div>
+          {modModal.spice!==null&&<div style={{marginBottom:14}}>
+            <div style={{fontWeight:700,fontSize:12,color:"#f5f0e8",marginBottom:7}}>🌶️ Spice Level</div>
+            <div style={{display:"flex",gap:7}}>
+              {SPICE_LEVELS.map(s=><button key={s} onClick={()=>setModModal(p=>({...p,spice:s}))} style={{flex:1,padding:"8px 3px",borderRadius:7,border:"none",cursor:"pointer",fontWeight:700,fontSize:10,background:modModal.spice===s?"#f97316":"#2d1c0a",color:modModal.spice===s?"#fff":"#c49a6c"}}>
+                {s==="Non Spicy"?"😊":s==="Reg Spicy"?"🌶️":"🔥"} {s}
+              </button>)}
+            </div>
+          </div>}
+          {modModal.item.modifiers?.includes("toppings")&&<div style={{marginBottom:14}}>
+            <div style={{fontWeight:700,fontSize:12,color:"#f5f0e8",marginBottom:7}}>🧀 Toppings <span style={{color:"#888",fontWeight:400}}>(pick any)</span></div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
+              {TOPPINGS.map(t=>{const sel=modModal.toppings.includes(t);return(
+                <button key={t} onClick={()=>setModModal(p=>({...p,toppings:sel?p.toppings.filter(x=>x!==t):[...p.toppings,t]}))} style={{padding:"7px 8px",borderRadius:7,border:`1px solid ${sel?"#f97316":"#2d1c0a"}`,cursor:"pointer",fontWeight:700,fontSize:10,background:sel?"#f9731620":"#1e1208",color:sel?"#f97316":"#888",textAlign:"left"}}>
+                  {sel?"✓ ":""}{t}
+                </button>
+              );})}
+            </div>
+          </div>}
+          <div style={{display:"flex",gap:7}}>
+            <button onClick={confirmMod} style={{flex:1,padding:"11px 0",borderRadius:9,border:"none",cursor:"pointer",background:"#f97316",color:"#fff",fontWeight:900,fontSize:14}}>Add to Order</button>
+            <button onClick={()=>setModModal(null)} style={{flex:1,padding:"11px 0",borderRadius:9,border:"none",cursor:"pointer",background:"#2d1c0a",color:"#c49a6c",fontWeight:700}}>Cancel</button>
+          </div>
+        </div>
+      </div>}
+
+      {receipt&&<div style={{position:"fixed",inset:0,background:"#000b",zIndex:9000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div style={{background:"#1a0e04",border:"2px solid #f97316",borderRadius:16,padding:22,width:350,maxHeight:"85vh",overflowY:"auto"}}>
+          <div style={{textAlign:"center",marginBottom:10}}>
+            <div style={{fontSize:22}}>🍗</div>
+            <div style={{fontWeight:900,fontSize:15,color:"#f97316"}}>SAM'S KITCHEN & CARIBBEAN GROCERIES</div>
+            <div style={{fontSize:10,color:"#888"}}>Royal Canadian Legion Branch 5, Chapleau ON</div>
+            <div style={{borderTop:"1px dashed #3d2510",margin:"8px 0"}}/>
+          </div>
+          <div style={{fontSize:11,color:"#888",marginBottom:7}}>
+            <div>Order #{receipt.id} • {fmtDate(receipt.time)} {fmtTime(receipt.time)}</div>
+            <div>Staff: {receipt.staff} • {receipt.payMethod.toUpperCase()}</div>
+            {receipt.customer.name&&<div>Customer: {receipt.customer.name}</div>}
+            {receipt.customer.phone&&<div>Phone: {receipt.customer.phone}</div>}
+            {receipt.orderType==="delivery"&&<div>🚚 Delivery: {receipt.customer.address}</div>}
+          </div>
+          {receipt.note&&<div style={{background:"#f59e0b15",border:"1px solid #f59e0b40",borderRadius:6,padding:"5px 8px",fontSize:11,color:"#f59e0b",marginBottom:8}}>📝 {receipt.note}</div>}
+          <div style={{borderTop:"1px dashed #3d2510",margin:"7px 0"}}/>
+          {receipt.items.map((item,i)=>(
+            <div key={i} style={{marginBottom:5}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}><span>{item.emoji} {item.name} ×{item.qty}</span><span style={{color:"#f97316"}}>{fmt(item.price*item.qty)}</span></div>
+              {item.spice&&<div style={{fontSize:10,color:"#f59e0b",marginLeft:16}}>🌶️ {item.spice}</div>}
+              {item.toppings?.length>0&&<div style={{fontSize:10,color:"#22c55e",marginLeft:16}}>+ {item.toppings.join(", ")}</div>}
+            </div>
+          ))}
+          <div style={{borderTop:"1px dashed #3d2510",margin:"7px 0"}}/>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}><span>Subtotal</span><span>{fmt(receipt.subtotal)}</span></div>
+          {receipt.tax>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3,color:"#888"}}><span>HST 13%</span><span>{fmt(receipt.tax)}</span></div>}
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:15,fontWeight:900,color:"#f97316",marginBottom:10}}><span>TOTAL</span><span>{fmt(receipt.total)}</span></div>
+          <div style={{textAlign:"center",fontSize:10,color:"#555",marginBottom:12}}>Thank you! 🙏 Find us on Facebook: Sam's Kitchen and Caribbean Groceries</div>
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:11,color:"#888",marginBottom:5}}>📧 Email receipt</div>
+            <div style={{display:"flex",gap:7}}>
+              <input placeholder="email@example.com" value={receipt.customer.email} onChange={e=>setReceipt({...receipt,customer:{...receipt.customer,email:e.target.value}})} style={{...inp,flex:1}}/>
+              <button onClick={()=>sendReceipt(receipt)} style={{padding:"7px 11px",borderRadius:7,border:"none",cursor:"pointer",background:"#f97316",color:"#fff",fontWeight:700,fontSize:11,whiteSpace:"nowrap"}}>
+                {emailSt==="sending"?"...":emailSt==="sent"?"✅":"Send"}
+              </button>
+            </div>
+          </div>
+          <button onClick={()=>setReceipt(null)} style={{width:"100%",padding:"9px 0",borderRadius:8,border:"none",cursor:"pointer",background:"#2d1c0a",color:"#c49a6c",fontWeight:700}}>Close</button>
+        </div>
+      </div>}
+
+      {eod&&<div style={{position:"fixed",inset:0,background:"#000b",zIndex:9000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div style={{background:"#1a0e04",border:"2px solid #22c55e",borderRadius:16,padding:22,width:370,maxHeight:"85vh",overflowY:"auto"}}>
+          <div style={{fontWeight:900,fontSize:19,color:"#22c55e",marginBottom:3}}>📊 End of Day Report</div>
+          <div style={{fontSize:11,color:"#888",marginBottom:14}}>{fmtDate(new Date())}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:14}}>
+            {[{l:"Total Revenue",v:fmt(todayRev),c:"#22c55e"},{l:"Orders Done",v:doneToday.length,c:"#f97316"},{l:"Cash",v:fmt(todayCash),c:"#f59e0b"},{l:"Debit/Card",v:fmt(todayDebit),c:"#6366f1"},{l:"HST Collected",v:fmt(todayTax),c:"#888"},{l:"Still Pending",v:pending.length,c:"#ef4444"}].map(c=>(
+              <div key={c.l} style={{background:"#0f0f0f",borderRadius:9,padding:10}}>
+                <div style={{fontSize:10,color:"#555",marginBottom:3}}>{c.l}</div>
+                <div style={{fontWeight:900,fontSize:17,color:c.c}}>{c.v}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{fontWeight:700,fontSize:12,color:"#f97316",marginBottom:8}}>👤 Staff Breakdown</div>
+          {staffList.map(s=>{const so=doneToday.filter(o=>o.staff===s.name);if(!so.length)return null;return(
+            <div key={s.id} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid #1e1208",fontSize:12}}>
+              <span>{s.emoji} {s.name}</span><span style={{color:"#f97316"}}>{so.length} orders • {fmt(so.reduce((x,o)=>x+o.total,0))}</span>
+            </div>
+          );})}
+          <div style={{fontWeight:700,fontSize:12,color:"#f97316",marginTop:12,marginBottom:8}}>🍽️ Items Sold Today</div>
+          {inv.map(it=>it.sold>0&&(
+            <div key={it.id} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1e1208",fontSize:12}}>
+              <span>{it.emoji} {it.name}</span>
+              <div style={{display:"flex",gap:12}}><span style={{color:"#f97316"}}>×{it.sold}</span><span style={{color:"#22c55e"}}>{fmt(it.sold*(menu.find(m=>m.id===it.id)?.price||0))}</span></div>
+            </div>
+          ))}
+          <button onClick={()=>setEod(false)} style={{width:"100%",marginTop:14,padding:"11px 0",borderRadius:9,border:"none",cursor:"pointer",background:"#22c55e",color:"#fff",fontWeight:900,fontSize:14}}>Close</button>
+        </div>
+      </div>}
+
+      {editItem&&<div style={{position:"fixed",inset:0,background:"#000b",zIndex:9000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{background:"#1a0e04",border:"2px solid #f97316",borderRadius:16,padding:22,width:300}}>
+          <div style={{fontWeight:900,fontSize:16,color:"#f97316",marginBottom:14}}>✏️ Edit Item</div>
+          {[["Name","name","text"],["Price ($)","price","number"]].map(([l,k,t])=>(
+            <div key={k} style={{marginBottom:10}}><div style={{fontSize:11,color:"#888",marginBottom:3}}>{l}</div><input type={t} step="0.01" value={editItem[k]} onChange={e=>setEditItem({...editItem,[k]:e.target.value})} style={inp}/></div>
+          ))}
+          <div style={{display:"flex",gap:7}}>
+            <button onClick={saveEdit} style={{flex:1,padding:"9px 0",borderRadius:8,border:"none",cursor:"pointer",background:"#f97316",color:"#fff",fontWeight:700}}>Save</button>
+            <button onClick={()=>setEditItem(null)} style={{flex:1,padding:"9px 0",borderRadius:8,border:"none",cursor:"pointer",background:"#2d1c0a",color:"#c49a6c",fontWeight:700}}>Cancel</button>
+          </div>
+        </div>
+      </div>}
+
+      {addModal&&<div style={{position:"fixed",inset:0,background:"#000b",zIndex:9000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div style={{background:"#1a0e04",border:"2px solid #22c55e",borderRadius:16,padding:22,width:320}}>
+          <div style={{fontWeight:900,fontSize:16,color:"#22c55e",marginBottom:14}}>➕ Add Menu Item</div>
+          {[["Name","name","text"],["Price ($)","price","number"],["Emoji","emoji","text"]].map(([l,k,t])=>(
+            <div key={k} style={{marginBottom:10}}><div style={{fontSize:11,color:"#888",marginBottom:3}}>{l}</div><input type={t} value={newItem[k]} onChange={e=>setNewItem({...newItem,[k]:e.target.value})} style={inp}/></div>
+          ))}
+          <div style={{marginBottom:10}}><div style={{fontSize:11,color:"#888",marginBottom:3}}>Category</div>
+            <select value={newItem.category} onChange={e=>setNewItem({...newItem,category:e.target.value})} style={inp}>
+              {["Momo","Mains","Snacks","Patties","Drinks","Other"].map(c=><option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div style={{marginBottom:14}}><div style={{fontSize:11,color:"#888",marginBottom:3}}>Starting Inventory</div><input type="number" value={newItem.inventory} onChange={e=>setNewItem({...newItem,inventory:e.target.value})} style={inp}/></div>
+          <div style={{display:"flex",gap:7}}>
+            <button onClick={saveNew} style={{flex:1,padding:"9px 0",borderRadius:8,border:"none",cursor:"pointer",background:"#22c55e",color:"#fff",fontWeight:700}}>Add</button>
+            <button onClick={()=>setAddModal(false)} style={{flex:1,padding:"9px 0",borderRadius:8,border:"none",cursor:"pointer",background:"#2d1c0a",color:"#c49a6c",fontWeight:700}}>Cancel</button>
+          </div>
+        </div>
+      </div>}
+
+      {notif&&<div style={{position:"fixed",top:14,right:14,zIndex:9999,background:notif.color,color:"#fff",padding:"10px 18px",borderRadius:10,fontWeight:700,fontSize:14,boxShadow:"0 4px 20px rgba(0,0,0,0.4)"}}>{notif.msg}</div>}
+
+      <div style={{background:"linear-gradient(135deg,#1a0a00,#2d1200)",borderBottom:"2px solid #f97316",padding:"9px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:7}}>
+        <div style={{display:"flex",alignItems:"center",gap:9}}>
+          <span style={{fontSize:22}}>🍗</span>
+          <div><div style={{fontWeight:900,fontSize:15,color:"#f97316",letterSpacing:1}}>SAM'S KITCHEN POS</div><div style={{fontSize:9,color:"#a88"}}>&amp; Caribbean Groceries</div></div>
+        </div>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
+          {[["cashier","🛒","Cashier"],["kitchen","👨‍🍳","Kitchen"],["inventory","📦","Inventory"],["history","📅","History"],["settings","⚙️","Menu"]].map(([v,ic,label])=>(
+            <button key={v} onClick={()=>setView(v)} style={{...b(view===v),padding:"6px 12px",fontSize:11,position:"relative"}}>
+              {ic} {label}
+              {v==="kitchen"&&pending.length>0&&<span style={{position:"absolute",top:-5,right:-5,background:"#ef4444",color:"#fff",borderRadius:9,padding:"1px 5px",fontSize:9,fontWeight:900}}>{pending.length}</span>}
+            </button>
+          ))}
+          <button onClick={()=>setEod(true)} style={{padding:"6px 12px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:11,background:"#22c55e",color:"#fff"}}>📊 EOD</button>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:9}}>
+          <span style={{fontSize:12,color:"#d4a57a"}}>{staff.emoji} {staff.name}</span>
+          <button onClick={()=>setStaff(null)} style={{padding:"4px 9px",borderRadius:6,border:"none",cursor:"pointer",background:"#2d1c0a",color:"#888",fontSize:10}}>Sign Out</button>
+          <span style={{fontSize:10,color:"#444"}}>{new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</span>
+        </div>
+      </div>
+
+      {view==="cashier"&&<div style={{display:"flex",height:"calc(100vh - 62px)",overflow:"hidden"}}>
+        <div style={{flex:1,overflowY:"auto",padding:12}}>
+          <div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>
+            {["All",...new Set(menu.map(i=>i.category))].map(c=><button key={c} onClick={()=>setCat(c)} style={{...b(cat===c),padding:"4px 12px",fontSize:10}}>{c}</button>)}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(142px,1fr))",gap:9}}>
+            {(cat==="All"?menu:menu.filter(i=>i.category===cat)).map(item=>{
+              const it=inv.find(i=>i.id===item.id);const rem=it?it.inventory-it.sold:0;const oos=rem<=0;
+              return(<div key={item.id} onClick={()=>!oos&&openMod(item)} style={{background:oos?"#1a1a1a":"linear-gradient(145deg,#1e1208,#2d1c0a)",border:`1px solid ${oos?"#333":"#f9731640"}`,borderRadius:11,padding:11,cursor:oos?"not-allowed":"pointer",opacity:oos?0.5:1}}>
+                <div style={{fontSize:26,marginBottom:4}}>{item.emoji}</div>
+                <div style={{fontWeight:700,fontSize:11,marginBottom:2,lineHeight:1.3}}>{item.name}</div>
+                <div style={{color:"#f97316",fontWeight:900,fontSize:13}}>{fmt(item.price)}</div>
+                {item.modifiers?.includes("spice")&&<div style={{fontSize:9,color:"#f59e0b",marginTop:2}}>🌶️ Spice</div>}
+                {item.modifiers?.includes("toppings")&&<div style={{fontSize:9,color:"#22c55e",marginTop:2}}>🧀 Toppings</div>}
+                <div style={{fontSize:9,color:rem<=5?"#ef4444":"#555",marginTop:2}}>{oos?"❌ Out":rem<=5?`⚠️ ${rem} left`:`${rem} left`}</div>
+              </div>);
+            })}
+          </div>
+        </div>
+
+        <div style={{width:310,background:"#140c04",borderLeft:"1px solid #2d1c0a",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          <div style={{padding:"10px 13px",borderBottom:"1px solid #2d1c0a",fontWeight:900,fontSize:14,color:"#f97316",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>🛒 Order</span><span style={{fontSize:10,color:"#888"}}>{staff.emoji} {staff.name}</span>
+          </div>
+          <div style={{borderBottom:"1px solid #1e1208"}}>
+            <button onClick={()=>setCustOpen(p=>!p)} style={{width:"100%",padding:"9px 13px",background:"transparent",border:"none",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",color:"#c49a6c",fontWeight:700,fontSize:12}}>
+              <span>👤 {cust.name||"Customer Details"}</span>
+              <span style={{fontSize:14,transform:custOpen?"rotate(180deg)":"none",transition:"transform 0.2s"}}>▼</span>
+            </button>
+            {custOpen&&<div style={{padding:"0 13px 11px",display:"flex",flexDirection:"column",gap:6}}>
+              <div style={{display:"flex",gap:5}}>
+                {["dine-in","delivery"].map(t=><button key={t} onClick={()=>setOrderType(t)} style={{...b(orderType===t),flex:1,padding:"5px 3px",fontSize:10}}>{t==="dine-in"?"🍽️ Dine-in":"🚚 Delivery"}</button>)}
+              </div>
+              {[["name","👤 Name","text"],["phone","📞 Phone","tel"],["email","📧 Email","email"]].map(([k,ph,t])=>(
+                <input key={k} type={t} placeholder={ph} value={cust[k]} onChange={e=>setCust({...cust,[k]:e.target.value})} style={inp}/>
+              ))}
+              {orderType==="delivery"&&<input placeholder="📍 Delivery Address" value={cust.address} onChange={e=>setCust({...cust,address:e.target.value})} style={inp}/>}
+            </div>}
+          </div>
+          <div style={{flex:1,padding:"9px 13px",overflowY:"auto"}}>
+            {cart.length===0?<div style={{color:"#444",textAlign:"center",marginTop:28,fontSize:12}}><div style={{fontSize:30,marginBottom:7}}>🍽️</div>Tap items to add</div>
+            :cart.map(item=>{
+              const price=menu.find(m=>m.id===item.id)?.price||item.price;
+              return(<div key={item._k} style={{padding:"7px 0",borderBottom:"1px solid #1e1208"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:15}}>{item.emoji}</span>
+                  <div style={{flex:1}}><div style={{fontSize:11,fontWeight:700}}>{item.name}</div><div style={{fontSize:10,color:"#f97316"}}>{fmt(price*item.qty)}</div></div>
+                  <div style={{display:"flex",alignItems:"center",gap:4}}>
+                    <button onClick={()=>updQty(item._k,-1)} style={{width:19,height:19,borderRadius:"50%",border:"none",background:"#2d1c0a",color:"#f5f0e8",cursor:"pointer",fontSize:11}}>−</button>
+                    <span style={{fontSize:11,fontWeight:700,minWidth:15,textAlign:"center"}}>{item.qty}</span>
+                    <button onClick={()=>updQty(item._k,1)} style={{width:19,height:19,borderRadius:"50%",border:"none",background:"#f97316",color:"#fff",cursor:"pointer",fontSize:11}}>+</button>
+                    <button onClick={()=>remCart(item._k)} style={{width:19,height:19,borderRadius:"50%",border:"none",background:"#ef444420",color:"#ef4444",cursor:"pointer",fontSize:9}}>✕</button>
+                  </div>
+                </div>
+                {item.spice&&<div style={{fontSize:9,color:"#f59e0b",marginLeft:21}}>🌶️ {item.spice}</div>}
+                {item.toppings?.length>0&&<div style={{fontSize:9,color:"#22c55e",marginLeft:21}}>+ {item.toppings.join(", ")}</div>}
+              </div>);
+            })}
+          </div>
+          <div style={{padding:"7px 13px",borderTop:"1px solid #1e1208"}}>
+            <textarea placeholder="📝 Special note for kitchen..." value={note} onChange={e=>setNote(e.target.value)} rows={2} style={{...inp,resize:"none",fontFamily:"inherit"}}/>
+          </div>
+          <div style={{padding:"9px 13px",borderTop:"1px solid #2d1c0a"}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2,color:"#888"}}><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
+            {taxable&&<div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2,color:"#888"}}><span>HST 13%</span><span>{fmt(tax)}</span></div>}
+            <div style={{display:"flex",justifyContent:"space-between",fontWeight:900,fontSize:16,color:"#f97316",marginBottom:9}}><span>TOTAL</span><span>{fmt(total)}</span></div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginBottom:9}}>
+              {[["cash","💵 Cash"],["debit","💳 Debit"],["credit","💳 Credit"],["mastercard","💳 MC"],["amex","💳 Amex"]].map(([m,label])=>(
+                <button key={m} onClick={()=>setPayMethod(m)} style={{...b(payMethod===m),padding:"5px 3px",fontSize:10}}>{label}</button>
+              ))}
+            </div>
+            <button onClick={placeOrder} style={{width:"100%",padding:"12px 0",borderRadius:9,border:"none",cursor:"pointer",background:cart.length?"linear-gradient(135deg,#f97316,#ea580c)":"#2d1c0a",color:cart.length?"#fff":"#555",fontWeight:900,fontSize:14}}>
+              SEND TO KITCHEN 👨‍🍳
+            </button>
+          </div>
+        </div>
+      </div>}
+
+      {view==="kitchen"&&<div style={{padding:13,overflowY:"auto",height:"calc(100vh - 62px)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:12,alignItems:"center"}}>
+          <h2 style={{margin:0,color:"#f97316",fontSize:17}}>👨‍🍳 Kitchen Display</h2>
+          <div style={{fontSize:11,color:"#888"}}>{pending.length} active • {done.length} done</div>
+        </div>
+        {pending.length===0?<div style={{textAlign:"center",color:"#555",marginTop:70}}><div style={{fontSize:50,marginBottom:10}}>✅</div><div style={{fontSize:17,fontWeight:700}}>All caught up!</div></div>
+        :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:11}}>
+          {pending.map(order=>{
+            const sec=Math.floor((Date.now()-new Date(order.time))/1000);const urgent=sec>600,warn=sec>300;
+            return(<div key={order.id} style={{background:urgent?"linear-gradient(145deg,#2d0a0a,#1a0808)":"linear-gradient(145deg,#1e1208,#2d1c0a)",border:`2px solid ${urgent?"#ef4444":warn?"#f59e0b":"#f97316"}`,borderRadius:13,padding:13}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:7}}>
+                <div>
+                  <span style={{fontWeight:900,fontSize:16,color:"#f97316"}}>#{order.id}</span>
+                  {order.customer.name&&<span style={{marginLeft:6,fontSize:11,color:"#d4a57a"}}>{order.customer.name}</span>}
+                  {order.orderType==="delivery"&&<span style={{marginLeft:4,fontSize:9,background:"#6366f120",color:"#6366f1",padding:"2px 5px",borderRadius:4}}>🚚</span>}
+                  <div style={{fontSize:9,color:"#555",marginTop:1}}>by {order.staff}</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:10,color:urgent?"#ef4444":warn?"#f59e0b":"#666"}}>⏱ {elapsed(order.time)}</div>
+                  <div style={{fontSize:9,color:"#444"}}>{fmtTime(order.time)}</div>
+                </div>
+              </div>
+              {order.note&&<div style={{background:"#f59e0b15",border:"1px solid #f59e0b30",borderRadius:5,padding:"4px 7px",fontSize:10,color:"#f59e0b",marginBottom:7}}>📝 {order.note}</div>}
+              {order.orderType==="delivery"&&order.customer.address&&<div style={{fontSize:10,color:"#6366f1",marginBottom:5,background:"#6366f110",padding:"3px 7px",borderRadius:4}}>📍 {order.customer.address}</div>}
+              <div style={{marginBottom:9}}>
+                {order.items.map((item,i)=>(
+                  <div key={i} style={{padding:"3px 0",borderBottom:"1px solid #2d1c0a"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}><span>{item.emoji} {item.name}</span><span style={{fontWeight:700,color:"#f97316"}}>×{item.qty}</span></div>
+                    {item.spice&&<div style={{fontSize:9,color:"#f59e0b",marginLeft:16}}>🌶️ {item.spice}</div>}
+                    {item.toppings?.length>0&&<div style={{fontSize:9,color:"#22c55e",marginLeft:16}}>+ {item.toppings.join(", ")}</div>}
+                  </div>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                {order.status==="pending"&&<button onClick={()=>updStatus(order.id,"cooking")} style={{flex:1,padding:"6px 0",borderRadius:6,border:"none",cursor:"pointer",background:"#f59e0b",color:"#fff",fontWeight:700,fontSize:11}}>🔥 Cooking</button>}
+                {order.status==="cooking"&&<button onClick={()=>updStatus(order.id,"ready")} style={{flex:1,padding:"6px 0",borderRadius:6,border:"none",cursor:"pointer",background:"#22c55e",color:"#fff",fontWeight:700,fontSize:11}}>✅ Ready</button>}
+                {order.status==="ready"&&<button onClick={()=>updStatus(order.id,"done")} style={{flex:1,padding:"6px 0",borderRadius:6,border:"none",cursor:"pointer",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:11}}>🎉 Collected</button>}
+                <button onClick={()=>setReceipt(order)} style={{padding:"6px 9px",borderRadius:6,border:"none",cursor:"pointer",background:"#2d1c0a",color:"#f97316",fontSize:11}}>🧾</button>
+              </div>
+            </div>);
+          })}
+        </div>}
+        {done.length>0&&<div style={{marginTop:18}}>
+          <div style={{color:"#555",fontSize:11,fontWeight:700,marginBottom:7}}>✅ Completed ({done.length})</div>
+          <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+            {done.slice(0,15).map(o=><div key={o.id} onClick={()=>setReceipt(o)} style={{background:"#1a1a1a",border:"1px solid #2a2a2a",borderRadius:6,padding:"4px 9px",fontSize:10,color:"#666",cursor:"pointer"}}>#{o.id} {fmt(o.total)} 🧾</div>)}
+          </div>
+        </div>}
+      </div>}
+
+      {view==="inventory"&&<div style={{padding:13,overflowY:"auto",height:"calc(100vh - 62px)"}}>
+        <h2 style={{margin:"0 0 12px",color:"#f97316",fontSize:17}}>📦 Inventory</h2>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:9,marginBottom:14}}>
+          {[{l:"Today Revenue",v:fmt(todayRev),e:"💰",c:"#22c55e"},{l:"Orders",v:todayOrders.length,e:"📋",c:"#f97316"},{l:"Cash",v:fmt(todayCash),e:"💵",c:"#f59e0b"},{l:"Debit/Card",v:fmt(todayDebit),e:"💳",c:"#6366f1"}].map(c=>(
+            <div key={c.l} style={{background:"linear-gradient(145deg,#1e1208,#2d1c0a)",border:"1px solid #f9731620",borderRadius:11,padding:11}}>
+              <div style={{fontSize:18,marginBottom:4}}>{c.e}</div>
+              <div style={{fontWeight:900,fontSize:16,color:c.c}}>{c.v}</div>
+              <div style={{fontSize:10,color:"#888",marginTop:1}}>{c.l}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{background:"#140c04",borderRadius:11,border:"1px solid #2d1c0a",overflow:"hidden"}}>
+          {inv.map((item,i)=>{
+            const rem=item.inventory-item.sold;const pct=Math.min(100,(item.sold/Math.max(item.inventory,1))*100);
+            const bc=rem<=0?"#ef4444":rem<=5?"#f59e0b":"#22c55e";const price=menu.find(m=>m.id===item.id)?.price||0;
+            return(<div key={item.id} style={{padding:"10px 13px",borderBottom:i<inv.length-1?"1px solid #1e1208":"none"}}>
+              <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5}}>
+                <span style={{fontSize:17}}>{item.emoji}</span>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                    <span style={{fontWeight:700,fontSize:11}}>{item.name}</span>
+                    <div style={{display:"flex",gap:9,fontSize:10}}>
+                      <span style={{color:"#f97316"}}>Sold: <b>{item.sold}</b></span>
+                      <span style={{color:bc}}>Left: <b>{rem}</b></span>
+                      <span style={{color:"#22c55e"}}>{fmt(item.sold*price)}</span>
+                    </div>
+                  </div>
+                  <div style={{background:"#1e1208",borderRadius:3,height:4,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:bc,transition:"width 0.5s"}}/></div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:5,marginLeft:24}}>
+                <button onClick={()=>setInv(p=>p.map(it=>it.id===item.id?{...it,inventory:it.inventory+10}:it))} style={{padding:"2px 8px",borderRadius:4,border:"none",background:"#1e3a1e",color:"#22c55e",cursor:"pointer",fontSize:10,fontWeight:700}}>+10</button>
+                <button onClick={()=>setInv(p=>p.map(it=>it.id===item.id?{...it,inventory:Math.max(it.sold,it.inventory-10)}:it))} style={{padding:"2px 8px",borderRadius:4,border:"none",background:"#3a1e1e",color:"#ef4444",cursor:"pointer",fontSize:10,fontWeight:700}}>-10</button>
+                <button onClick={()=>setInv(p=>p.map(it=>it.id===item.id?{...it,sold:0}:it))} style={{padding:"2px 8px",borderRadius:4,border:"none",background:"#1a1a2e",color:"#6366f1",cursor:"pointer",fontSize:10,fontWeight:700}}>Reset</button>
+              </div>
+            </div>);
+          })}
+        </div>
+      </div>}
+
+      {view==="history"&&<div style={{padding:13,overflowY:"auto",height:"calc(100vh - 62px)"}}>
+        <h2 style={{margin:"0 0 12px",color:"#f97316",fontSize:17}}>📅 Sales History</h2>
+        <div style={{display:"flex",gap:5,marginBottom:12,flexWrap:"wrap"}}>
+          {histDates.length===0?<div style={{color:"#555",fontSize:12}}>No history yet</div>:histDates.map(date=>(
+            <button key={date} onClick={()=>setHistDate(date)} style={{...b(histDate===date),padding:"4px 11px",fontSize:11}}>{date}</button>
+          ))}
+        </div>
+        {filtHist.length>0&&<>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:9,marginBottom:12}}>
+            {[{l:"Revenue",v:fmt(histRev),c:"#22c55e"},{l:"Orders",v:filtHist.length,c:"#f97316"},{l:"Completed",v:filtHist.filter(o=>o.status==="done").length,c:"#6366f1"}].map(c=>(
+              <div key={c.l} style={{background:"linear-gradient(145deg,#1e1208,#2d1c0a)",border:"1px solid #f9731620",borderRadius:9,padding:9}}>
+                <div style={{fontWeight:900,fontSize:15,color:c.c}}>{c.v}</div>
+                <div style={{fontSize:10,color:"#888",marginTop:1}}>{c.l}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{background:"#140c04",borderRadius:11,border:"1px solid #2d1c0a",overflow:"hidden",marginBottom:12}}>
+            <div style={{padding:"9px 13px",borderBottom:"1px solid #2d1c0a",fontWeight:700,fontSize:12,color:"#f97316"}}>Items Sold — {histDate}</div>
+            {Object.entries(itemsByDate(histDate)).map(([name,qty])=>{
+              const mi=menu.find(m=>m.name===name);
+              return<div key={name} style={{display:"flex",justifyContent:"space-between",padding:"7px 13px",borderBottom:"1px solid #1e1208",fontSize:11}}>
+                <span>{mi?.emoji||"🍽️"} {name}</span>
+                <div style={{display:"flex",gap:12}}><span style={{color:"#f97316"}}>×{qty}</span><span style={{color:"#22c55e"}}>{fmt(qty*(mi?.price||0))}</span></div>
+              </div>;
+            })}
+          </div>
+          <div style={{background:"#140c04",borderRadius:11,border:"1px solid #2d1c0a",overflow:"hidden"}}>
+            <div style={{padding:"9px 13px",borderBottom:"1px solid #2d1c0a",fontWeight:700,fontSize:12,color:"#f97316"}}>All Orders</div>
+            {filtHist.map((order,i)=>(
+              <div key={order.id} style={{padding:"8px 13px",borderBottom:i<filtHist.length-1?"1px solid #1e1208":"none",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11}}>
+                <div>
+                  <span style={{color:"#f97316",fontWeight:700}}>#{order.id}</span>
+                  <span style={{marginLeft:6,color:"#d4a57a"}}>{order.customer.name||"Walk-in"}</span>
+                  <span style={{marginLeft:6,color:"#555",fontSize:10}}>{fmtTime(order.time)} • {order.staff}</span>
+                  {order.note&&<div style={{fontSize:9,color:"#f59e0b"}}>📝 {order.note}</div>}
+                </div>
+                <div style={{display:"flex",gap:7,alignItems:"center"}}>
+                  <span style={{color:"#22c55e",fontWeight:700}}>{fmt(order.total)}</span>
+                  <button onClick={()=>setReceipt(order)} style={{padding:"3px 7px",borderRadius:4,border:"none",background:"#2d1c0a",color:"#f97316",cursor:"pointer",fontSize:9}}>🧾</button>
+                  <span style={{fontSize:9,padding:"2px 5px",borderRadius:6,fontWeight:700,background:order.status==="done"?"#22c55e20":"#f9731620",color:order.status==="done"?"#22c55e":"#f97316"}}>{order.status}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>}
+      </div>}
+
+      {view==="settings"&&<div style={{padding:13,overflowY:"auto",height:"calc(100vh - 62px)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <h2 style={{margin:0,color:"#f97316",fontSize:17}}>⚙️ Menu Management</h2>
+          <button onClick={()=>setAddModal(true)} style={{padding:"7px 14px",borderRadius:7,border:"none",cursor:"pointer",background:"#22c55e",color:"#fff",fontWeight:700,fontSize:12}}>➕ Add Item</button>
+        </div>
+        <div style={{background:"#140c04",borderRadius:11,border:"1px solid #2d1c0a",overflow:"hidden"}}>
+          {menu.map((item,i)=>(
+            <div key={item.id} style={{padding:"10px 13px",borderBottom:i<menu.length-1?"1px solid #1e1208":"none",display:"flex",alignItems:"center",gap:9}}>
+              <span style={{fontSize:20}}>{item.emoji}</span>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:12}}>{item.name}</div>
+                <div style={{fontSize:10,color:"#888"}}>{item.category}{item.modifiers?.length>0&&` • ${item.modifiers.join(", ")}`}</div>
+              </div>
+              <div style={{fontWeight:900,fontSize:14,color:"#f97316",minWidth:50,textAlign:"right"}}>{fmt(item.price)}</div>
+              <div style={{display:"flex",gap:5}}>
+                <button onClick={()=>setEditItem({...item})} style={{padding:"4px 10px",borderRadius:6,border:"none",cursor:"pointer",background:"#f97316",color:"#fff",fontWeight:700,fontSize:10}}>✏️</button>
+                <button onClick={()=>remItem(item.id)} style={{padding:"4px 10px",borderRadius:6,border:"none",cursor:"pointer",background:"#ef444420",color:"#ef4444",fontWeight:700,fontSize:10}}>🗑️</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+<script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('./sw.js')
+      .then(r=>console.log('✅ SW registered:',r.scope))
+      .catch(e=>console.warn('SW skipped (needs HTTPS or localhost):',e));
+  });
+}
+</script>
+</body>
+</html>

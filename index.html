@@ -12,6 +12,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script>emailjs.init({publicKey:"89XXMfTHZqHtrCeOL",privateKey:"cnC6HvPS2fqGhpCMTnUgo"});</script>
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 body{margin:0;font-family:'Trebuchet MS',sans-serif;background:#0f0f0f;overscroll-behavior:none;}
@@ -173,7 +175,8 @@ function App(){
         body:JSON.stringify({
           service_id:"service_xejyzkt",
           template_id:"template_34fzew9",
-          user_id:"89XXMfTHZqHtrCeOL",accessToken:"cnC6HvPS2fqGhpCMTnUgo",
+          user_id:"89XXMfTHZqHtrCeOL",
+          accessToken:"cnC6HvPS2fqGhpCMTnUgo",
           template_params:{
             to_email:o.customer.email,
             customer_name:o.customer.name||"Valued Customer",

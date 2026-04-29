@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <meta name="theme-color" content="#f97316"/>
-<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="Sam's POS"/>
 <link rel="manifest" href="manifest.json"/>
@@ -84,17 +84,8 @@ function App(){
   const[cat,setCat]=useState("All");
   const[tick,setTick]=useState(0);
 
-  // Sync state from localStorage whenever staff logs in
-  useEffect(()=>{
-    if(staff){
-      setOrders(load("sk_orders",[]));
-      setMenu(load("sk_menu",INITIAL_MENU));
-      setInv(load("sk_inv",INITIAL_MENU.map(i=>({...i,sold:0}))));
-      setStaffList(load("sk_staff",DEFAULT_STAFF));
-    }
-  },[staff]);
-
   useEffect(()=>{const t=setInterval(()=>setTick(x=>x+1),1000);return()=>clearInterval(t);},[]);
+  useEffect(()=>{if(staff){setOrders(load("sk_orders",[]));setMenu(load("sk_menu",INITIAL_MENU));setInv(load("sk_inv",INITIAL_MENU.map(i=>({...i,sold:0}))));setStaffList(load("sk_staff",DEFAULT_STAFF));}},[staff]);
   useEffect(()=>{save("sk_staff",staffList);},[staffList]);
   useEffect(()=>{save("sk_menu",menu);},[menu]);
   useEffect(()=>{save("sk_inv",inv);},[inv]);
@@ -152,6 +143,31 @@ function App(){
   };
   const remItem=id=>{setMenu(prev=>prev.filter(m=>m.id!==id));setInv(prev=>prev.filter(i=>i.id!==id));notify("Removed","#6366f1");};
 
+  const sendReceipt=o=>{
+    if(!o.customer.email){notify("No email on file!","#ef4444");return;}
+    setEmailSt("sending");
+    const itemsText=o.items.map(i=>`${i.emoji} ${i.name} x${i.qty}${i.spice?' ['+i.spice+']':''}${i.toppings?.length?' ['+i.toppings.join(', ')+']':''} — $${(i.price*i.qty).toFixed(2)}`).join('\n');
+    emailjs.send("service_xejyzkt","template_anilb",{
+      to_email:o.customer.email,
+      customer_name:o.customer.name||"Valued Customer",
+      order_id:String(o.id),
+      order_date:fmtDate(o.time)+" "+fmtTime(o.time),
+      staff_name:o.staff,
+      order_items:itemsText,
+      subtotal:"$"+o.subtotal.toFixed(2),
+      tax_line:o.tax>0?"HST 13%: $"+o.tax.toFixed(2):"",
+      total:"$"+o.total.toFixed(2),
+      pay_method:o.payMethod.toUpperCase()
+    }).then(()=>{
+      setEmailSt("sent");
+      notify(`📧 Receipt sent to ${o.customer.email}!`,"#22c55e");
+    }).catch(e=>{
+      setEmailSt("error");
+      notify("❌ Failed: "+(e?.text||e?.message||"error"),"#ef4444");
+    });
+    setTimeout(()=>setEmailSt(""),4000);
+  };
+
   const todayOrders=orders.filter(o=>o.date===fmtDate(new Date()));
   const done=orders.filter(o=>o.status==="done");
   const doneToday=todayOrders.filter(o=>o.status==="done");
@@ -164,38 +180,6 @@ function App(){
   const filtHist=orders.filter(o=>o.date===histDate);
   const histRev=filtHist.filter(o=>o.status==="done").reduce((s,o)=>s+o.total,0);
   const itemsByDate=date=>{const sales={};orders.filter(o=>o.date===date&&o.status==="done").forEach(o=>o.items.forEach(it=>{sales[it.name]=(sales[it.name]||0)+it.qty;}));return sales;};
- const sendReceipt=async o=>{
-    if(!o.customer.email){notify("No email on file!","#ef4444");return;}
-    setEmailSt("sending");
-    try{
-      const itemsText=o.items.map(i=>`${i.emoji} ${i.name} x${i.qty}${i.spice?' ['+i.spice+']':''}${i.toppings?.length?' ['+i.toppings.join(', ')+']':''} — ${(i.price*i.qty).toFixed(2)}`).join('\n');
-      const res=await fetch("https://api.emailjs.com/api/v1.0/email/send",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          service_id:"service_xejyzkt",
-          template_id:"template_anilb",
-          user_id:"89XXMfTHZqHtrCeOL",
-          accessToken:"cnC6HvPS2fqGhpCMTnUgo",
-          template_params:{
-            to_email:o.customer.email,
-            customer_name:o.customer.name||"Valued Customer",
-            order_id:o.id,
-            order_date:fmtDate(o.time)+" "+fmtTime(o.time),
-            staff_name:o.staff,
-            order_items:itemsText,
-            subtotal:"$"+o.subtotal.toFixed(2),
-            tax_line:o.tax>0?"HST 13%: $"+o.tax.toFixed(2):"",
-            total:"$"+o.total.toFixed(2),
-            pay_method:o.payMethod.toUpperCase(),
-          }
-        })
-      });
-      if(res.ok){setEmailSt("sent");notify(`📧 Receipt sent to ${o.customer.email}!`,"#22c55e");}
-      else{setEmailSt("error");notify("❌ Failed to send email","#ef4444");}
-    }catch(e){setEmailSt("error");notify("❌ Network error","#ef4444");}
-    setTimeout(()=>setEmailSt(""),3000);
-  };
 
   const inp={background:"#1e1208",border:"1px solid #3d2510",borderRadius:8,padding:"7px 11px",color:"#f5f0e8",fontSize:12,width:"100%",boxSizing:"border-box"};
   const b=(active,color="#f97316")=>({padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:12,background:active?color:"#2a1a0a",color:active?"#fff":"#c49a6c",transition:"all 0.2s"});
@@ -329,11 +313,11 @@ function App(){
             <div style={{display:"flex",gap:7}}>
               <input placeholder="email@example.com" value={receipt.customer.email} onChange={e=>setReceipt({...receipt,customer:{...receipt.customer,email:e.target.value}})} style={{...inp,flex:1}}/>
               <button onClick={()=>sendReceipt(receipt)} style={{padding:"7px 11px",borderRadius:7,border:"none",cursor:"pointer",background:"#f97316",color:"#fff",fontWeight:700,fontSize:11,whiteSpace:"nowrap"}}>
-                {emailSt==="sending"?"...":emailSt==="sent"?"✅":"Send"}
+                {emailSt==="sending"?"⏳":emailSt==="sent"?"✅":emailSt==="error"?"❌":"Send"}
               </button>
             </div>
           </div>
-          <button onClick={()=>setReceipt(null)} style={{width:"100%",padding:"9px 0",borderRadius:8,border:"none",cursor:"pointer",background:"#2d1c0a",color:"#c49a6c",fontWeight:700}}>Close</button>
+          <button onClick={()=>{setReceipt(null);setEmailSt("");}} style={{width:"100%",padding:"9px 0",borderRadius:8,border:"none",cursor:"pointer",background:"#2d1c0a",color:"#c49a6c",fontWeight:700}}>Close</button>
         </div>
       </div>}
 
@@ -440,7 +424,6 @@ function App(){
             })}
           </div>
         </div>
-
         <div style={{width:310,background:"#140c04",borderLeft:"1px solid #2d1c0a",display:"flex",flexDirection:"column",overflow:"hidden"}}>
           <div style={{padding:"10px 13px",borderBottom:"1px solid #2d1c0a",fontWeight:900,fontSize:14,color:"#f97316",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span>🛒 Order</span><span style={{fontSize:10,color:"#888"}}>{staff.emoji} {staff.name}</span>
@@ -669,7 +652,7 @@ if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
     navigator.serviceWorker.register('./sw.js')
       .then(r=>console.log('✅ SW registered:',r.scope))
-      .catch(e=>console.warn('SW skipped (needs HTTPS or localhost):',e));
+      .catch(e=>console.warn('SW skipped:',e));
   });
 }
 </script>

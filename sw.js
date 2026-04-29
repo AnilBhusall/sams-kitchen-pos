@@ -1,16 +1,25 @@
-const CACHE = 'sams-v1';
+const CACHE = 'sams-v2';
 const ASSETS = ['./', './index.html', './manifest.json'];
+
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
   self.skipWaiting();
 });
+
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(keys =>
     Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
   ));
   self.clients.claim();
 });
+
 self.addEventListener('fetch', e => {
+  // Never cache external API calls (EmailJS, CDNs)
+  const url = e.request.url;
+  if (url.includes('emailjs.com') || url.includes('jsdelivr.net') || url.includes('cdnjs.cloudflare.com') || url.includes('api.')) {
+    e.respondWith(fetch(e.request));
+    return;
+  }
   e.respondWith(
     caches.match(e.request).then(cached => cached || fetch(e.request))
   );
